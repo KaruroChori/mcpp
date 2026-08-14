@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - name: karurochari
+title: "mcpp: A C++26 reflection-based Model Context Protocol (MCP) server library"
+date-released: 2026-08-14
+url: "https://github.com/karurochori/mcpp"
+repository-code: "https://github.com/karurochori/mcpp"
+license: "LGPL-3.0-only"
+keywords:
+  - "mcp"
+  - "model context protocol"
+  - "c++26"
+  - "reflection"
+  - "llm"
+  - "agents"

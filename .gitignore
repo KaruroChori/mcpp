@@ -1,0 +1,13 @@
+node_modules/
+build/
+dist/
+install/
+.xmake/
+.cache/
+compile_commands.json
+*.tgz
+.DS_Store
+*.sock
+
+# xmake doxygen generates this
+/doxyfile

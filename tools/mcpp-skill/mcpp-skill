@@ -1,0 +1,125 @@
+#!/bin/sh
+#
+# mcpp-skill - copy the mcp-cpp-refactor skill (and its reference assets) from
+# the shared install prefix to a local opencode skills directory, on request.
+#
+# The skill is stored in the shared prefix when the library is installed with
+# `xmake install`:
+#
+#   <prefix>/bin/mcpp-skill
+#   <prefix>/share/opencode/skills/mcp-cpp-refactor/SKILL.md
+#   <prefix>/share/mcpp/examples/...            (reference material for the skill)
+#
+# This script copies the skill - and the reference examples, bundled as
+# <skill>/examples - to where opencode actually loads it, so the skill is
+# available system-wide (or in one repo):
+#
+#   mcpp-skill                -> ${XDG_CONFIG_HOME:-~/.config}/opencode/skills
+#   mcpp-skill --repo         -> <cwd>/.opencode/skills        (project scope)
+#
+# It can also be run straight from the source tree (before any install): the
+# shared source is then the repo's assets/.opencode/skills directory.
+#
+# Usage:
+#   mcpp-skill                 copy the skill to the user's global opencode dir
+#   mcpp-skill --repo          copy to <cwd>/.opencode/skills (project scope)
+#   mcpp-skill --shared DIR    use DIR as the shared skill source
+#   mcpp-skill --uninstall     remove the skill from the target skills dir
+#   mcpp-skill --help          show this help
+#
+set -eu
+
+# --- resolve our real location (follow symlinks) -----------------------------
+SCRIPT=$0
+while [ -L "$SCRIPT" ]; do
+    LINK=$(readlink "$SCRIPT") 2>/dev/null || true
+    if [ -z "$LINK" ]; then break; fi
+    case "$LINK" in
+        /*) SCRIPT=$LINK ;;
+        *)  SCRIPT=$(dirname "$SCRIPT")/$LINK ;;
+    esac
+done
+SELF_DIR=$(CDPATH= cd -- "$(dirname "$SCRIPT")" && pwd)
+
+# --- locate the shared skill source -----------------------------------------
+# Installed layout: <prefix>/bin/mcpp-skill + <prefix>/share/opencode/skills/...
+# Source-tree layout: <repo>/tools/mcpp-skill/mcpp-skill + <repo>/assets/...
+UP1=$(dirname "$SELF_DIR")      # installed prefix (script in bin/) or <repo>/tools
+UP2=$(dirname "$UP1")           # repo root (script in tools/mcpp-skill/)
+
+SHARED=""
+for cand in \
+    "$UP1/share/opencode/skills/mcp-cpp-refactor" \
+    "$UP2/assets/.opencode/skills/mcp-cpp-refactor" \
+    "$UP2/.opencode/skills/mcp-cpp-refactor"
+do
+    if [ -d "$cand" ]; then SHARED=$cand; break; fi
+done
+
+# Reference examples, bundled next to the installed skill as <skill>/examples.
+EXAMPLES=""
+for cand in "$UP1/share/mcpp/examples" "$UP2/examples" "$UP2/share/mcpp/examples"
+do
+    if [ -d "$cand" ]; then EXAMPLES=$cand; break; fi
+done
+
+# --- options -----------------------------------------------------------------
+ACTION=copy          # copy | uninstall
+TARGET=user          # user | repo
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --repo)        TARGET=repo ;;
+        --shared)      shift; SHARED=$1 ;;
+        --uninstall)   ACTION=uninstall ;;
+        --help|-h)     sed -n '2,29p' "$SCRIPT"; exit 0 ;;
+        *)             echo "mcpp-skill: unknown option: $1 (see --help)" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+if [ -z "$SHARED" ]; then
+    echo "mcpp-skill: cannot locate the shared skill source." >&2
+    echo "  Install the library first (xmake install) or pass --shared DIR." >&2
+    exit 1
+fi
+if [ ! -d "$SHARED" ]; then
+    echo "mcpp-skill: shared skill source not found: $SHARED" >&2
+    exit 1
+fi
+if [ ! -f "$SHARED/SKILL.md" ]; then
+    echo "mcpp-skill: '$SHARED' has no SKILL.md (not a skill directory)." >&2
+    exit 1
+fi
+
+# --- target directory ---------------------------------------------------------
+if [ "$TARGET" = repo ]; then
+    TARGET_DIR=$PWD/.opencode/skills
+else
+    CONFIG_DIR=${XDG_CONFIG_HOME:-"$HOME/.config"}
+    TARGET_DIR=$CONFIG_DIR/opencode/skills
+fi
+DEST=$TARGET_DIR/mcp-cpp-refactor
+
+case "$ACTION" in
+    uninstall)
+        if [ -d "$DEST" ]; then
+            rm -rf "$DEST"
+            echo "mcpp-skill: removed $DEST"
+        else
+            echo "mcpp-skill: nothing to remove at $DEST"
+        fi
+        exit 0
+        ;;
+    copy)
+        mkdir -p "$TARGET_DIR"
+        rm -rf "$DEST"
+        cp -R "$SHARED" "$DEST"
+        if [ -n "$EXAMPLES" ]; then
+            cp -R "$EXAMPLES" "$DEST/examples"
+        fi
+        echo "mcpp-skill: installed $DEST"
+        ;;
+esac
+
+# --- remind about opencode restart -------------------------------------------
+echo "  Restart opencode for the skill to be picked up (config is loaded at startup)."
