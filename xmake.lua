@@ -1,11 +1,11 @@
 set_project("mcpp")
-set_version("0.2.0")
+set_version("0.2.1")
 set_xmakever("3.0.9") --not sure it must be this high, but I cannot be bother checking feature lists.
 
 set_languages("c++26")
 set_policy("generator.compile_commands", true)
 
-add_requires("simdjson", {system = false, configs = {noexceptions = true}})
+add_requires("simdjson", {system = false, configs = {noexceptions = not has_config("exceptions")}})
 add_requires("fmt", {system = false, configs = {header_only = true}})
 
 -- Legacy 2025-11-25 protocol path, on by default for legacy clients.
@@ -17,12 +17,27 @@ option("legacy2025")
     set_description("Enable the legacy 2025-11-25 protocol path (dual-era)")
 option_end()
 
+-- Build the library with exceptions enabled, for exceptions-enabled consumers
+-- (e.g. ones that use fmt or simdjson with exceptions themselves). Off by
+-- default: the library stays exception-free.
+option("exceptions")
+    set_default(false)
+    set_showmenu(true)
+    set_category("Build Options")
+    set_description("Build with exceptions enabled (match an exceptions-enabled consumer)")
+option_end()
+
 local common = function ()
     add_includedirs("include", {public = true})
     set_targetdir("$(projectdir)/build")
     set_optimize("fastest")
-    add_cxflags("-pthread", "-fno-exceptions", "-fno-rtti", "-freflection", {force = true})
-    add_defines("SIMDJSON_EXCEPTIONS=0", "FMT_EXCEPTIONS=0")
+    add_cxflags("-pthread", "-fno-rtti", "-freflection", {force = true})
+    if has_config("exceptions") then
+        add_defines("SIMDJSON_EXCEPTIONS=1", "FMT_EXCEPTIONS=1")
+    else
+        add_cxflags("-fno-exceptions", {force = true})
+        add_defines("SIMDJSON_EXCEPTIONS=0", "FMT_EXCEPTIONS=0")
+    end
     if has_config("legacy2025") then
         add_defines("MCPP_LEGACY_2025")
     end

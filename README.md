@@ -83,6 +83,10 @@ failures" permission prompt. Those are not real failures, just opencode permissi
   authentication, for clients that cannot talk over a unix socket directly
   (like opencode, you fool). 
 
+Consumers need `-freflection` (reflection splices live in the headers) and,
+for `mcpp-server`, `-DSIMDJSON_EXCEPTIONS=0`. The library is exception-free
+by default; the `exceptions` build config makes it exception-enabled.
+
 To use the bridge manually you can do something like this:
 
 ```bash
@@ -107,6 +111,7 @@ for that right now.
 ```bash
 xmake                            # library + mcpp-bridge only
 xmake f --with_demo=y && xmake   # the optional examples too
+xmake f --exceptions=y && xmake  # build the library exception-enabled
 ```
 
 `mcp-example-binary` additionally pulls in the `capnproto` package for 

@@ -50,8 +50,16 @@ The installed layout:
 - tools: `<prefix>/bin/mcpp-bridge`, `<prefix>/bin/mcpp-skill`
 
 Consumers compile against the installed headers and link the static library
-with the same flags it was built with: `-fno-exceptions -fno-rtti -freflection`,
-`-DSIMDJSON_EXCEPTIONS=0 -DFMT_EXCEPTIONS=0`, plus simdjson and fmt.
+with `-freflection` (required: the headers carry reflection splices) and, when
+using `mcpp-server`, `-DSIMDJSON_EXCEPTIONS=0` (keeps simdjson headers
+consistent with the prebuilt exception-free library), plus simdjson and fmt.
+fmt is not part of the public headers, so a consumer's own fmt usage is never
+affected. The library is built exception-free by default, but that is its own
+profile: downstream applications keep their exceptions and RTTI. If the
+application uses exceptions itself (e.g. its own fmt or simdjson with
+exceptions), require the package with the `exceptions` config enabled so the
+library is built and linked exception-enabled, with no exception defines
+forced on the consumer.
 
 If there is no install and the project does not use xmake, vendor the source
 (`include/` + `lib/mcpp-server/`) into the project as a last resort.
