@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <span>
 #include <thread>
+#include <type_traits>
 
 #include <mcpp/mcpp.hpp>
 #include <mcpp-server/simdjson-ops.hpp>
@@ -142,6 +143,36 @@ struct [[= mcp::tool_group{} ]] repo {
     mutable std::int64_t served = 0;
 };
 
+struct banner_result {
+    std::string text;
+    bool bold;
+};
+
+// A custom serializer: the whole point of mcp::with<...>::tool. This one is
+// deliberately tiny and independent of the reflection machinery — it only knows
+// how to emit the single result type of this tool, so it never pulls in
+// <variant>/<optional>/<map> or the reflection-based json_serializer. The
+// alias binds the serializer while CTAD still deduces the string lengths from
+// the literals, so the annotation reads exactly like the plain form.
+template <typename T>
+struct plain_serializer {
+    static std::string to_json(const T& v) {
+        static_assert(std::is_same_v<T, banner_result>,
+                      "app::plain_serializer only knows how to serialize banner_result");
+        return mcp::json_object({
+            {"text", mcp::json_string(v.text)},
+            {"bold", v.bold ? "true" : "false"},
+        });
+    }
+};
+
+struct [[= mcp::tool_group{} ]] formatted {
+    [[= mcp::with<mcp::no_auth, plain_serializer>::tool{ .description = mcp::str("Returns a fixed banner. Demonstrates a custom serializer selected via mcp::with<...>::tool.") } ]]
+    static banner_result banner() {
+        return banner_result{ "mcp-demo", true };
+    }
+};
+
 // Prompt: a function whose return is the standard MCP `messages` array. The
 // completion hook is the sibling `summarize_changes_complete` (default
 // `<prompt>_complete` naming convention); the reflection layer wires it in.
@@ -191,7 +222,7 @@ struct [[= mcp::prompt_group{} ]] prompt_group {
 } // namespace groups
 
 // Compile-time proof that the tagged discovery picks up every group.
-static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>().size() == 6);
+static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>().size() == 7);
 static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>()[0].name == "echo");
 static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>()[1].name == "add");
 static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>()[2].name == "project_info");
@@ -200,6 +231,13 @@ static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdj
 // The last tool is admin-guarded; its `authorized` must be wired.
 static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>()[5].name == "raw_project_info");
 static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>()[5].authorized != nullptr);
+static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>()[6].name == "banner");
+// Compile-time proof that the banner tool's serializer came from the with<>
+// alias (plain_serializer, not the default json_serializer).
+using formatted_config = std::remove_cv_t<
+    typename [: std::meta::type_of(mcp::find_meta(^^groups::formatted::banner)) :]>;
+static_assert(std::is_same_v<mcp::tool_serializer<formatted_config>::template type<groups::banner_result>,
+                             groups::plain_serializer<groups::banner_result>>);
 static_assert(mcp::register_tagged_prompts<^^groups, ^^mcp::prompt_group, mcp::simdjson_parser>().size() == 1);
 // The completion hook is discovered by the default naming convention.
 static_assert(mcp::register_tagged_prompts<^^groups, ^^mcp::prompt_group, mcp::simdjson_parser>()[0].complete != nullptr);

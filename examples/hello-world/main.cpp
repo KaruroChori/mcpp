@@ -3,7 +3,7 @@
 
 int main() {
     mcp::StdioStream stream;
-    mcp::Server server(stream, hello::registry());
+    mcp::Server server(stream, todo::registry());
     server.run();
     return 0;
 }

@@ -28,20 +28,24 @@ But if you want to see how it works (and likely break) behind the veil:
 #include <mcpp/mcpp.hpp>
 #include <mcpp-server/mcpp-server.hpp>
 
-namespace app::groups {
+namespace todo::groups {
 
-struct [[= mcp::tool_group{} ]] ops {
-    [[= mcp::tool{ .description = mcp::str("Adds two integers.") } ]]
-    static auto add(std::int64_t a, std::int64_t b) {
-        return (struct{ std::int64_t sum; }){ a + b };
+struct [[= mcp::tool_group{} ]] todo_list {
+    [[= mcp::tool{ .description = mcp::str("Adds a todo item, returning its id.") } ]]
+    static auto add(std::string text) {
+        return (struct{ std::int64_t id; bool ok; }){ 1, true };
+    }
+    [[= mcp::tool{ .description = mcp::str("Lists the todo items.") } ]]
+    static auto list() {
+        return std::vector<std::string>{};
     }
 };
 
-} // namespace app::groups
+} // namespace todo::groups
 
 mcp::Registry registry() {
     return mcp::Registry{
-        .actions = mcp::register_tagged_tools<^^app::groups, ^^mcp::tool_group, mcp::simdjson_parser>(),
+        .actions = mcp::register_tagged_tools<^^todo::groups, ^^mcp::tool_group, mcp::simdjson_parser>(),
         .resources = {}, .prompts = {}, .resource_templates = {},
     };
 }

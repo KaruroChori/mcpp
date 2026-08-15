@@ -1,77 +1,95 @@
 #include "tools.hpp"
 
-#include <cctype>
-#include <type_traits>
+#include <cstdint>
+#include <mutex>
+#include <string>
+#include <vector>
 
 #include <mcpp/mcpp.hpp>
 #include <mcpp-server/simdjson-ops.hpp>
 
-namespace hello {
+namespace todo {
 
-struct greet_result {
-    std::string greeting;
-    bool shouted;
+namespace {
+
+struct item {
+    std::int64_t id;
+    std::string text;
+    bool done;
 };
 
-// A custom serializer: the whole point of mcp::with<...>::tool. This one is
-// deliberately tiny and independent of the reflection machinery — it only knows
-// how to emit the single result type of this project's tools, so it never pulls
-// in <variant>/<optional>/<map> or the reflection-based json_serializer.
-template <typename T>
-struct plain_serializer {
-    static std::string to_json(const T& v) {
-        static_assert(std::is_same_v<T, greet_result>,
-                      "hello::plain_serializer only knows how to serialize greet_result");
-        return mcp::json_object({
-            {"greeting", mcp::json_string(v.greeting)},
-            {"shouted", v.shouted ? "true" : "false"},
-        });
-    }
-};
-
-struct chat {
-    // Custom serializer, selected via mcp::with<...>::tool. The alias binds
-    // the serializer while CTAD still deduces the string lengths from the
-    // literals, so the annotation reads exactly like the plain form.
-    [[= mcp::with<mcp::no_auth, plain_serializer>::tool{ .description = mcp::str("Greets the user by name, optionally SHOUTING.") } ]]
-    static greet_result greet(std::string name) {
-        bool shouted = false;
-        if (!name.empty() && name.back() == '!') {
-            shouted = true;
-            name.pop_back();
-        }
-        for (auto& c : name) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-        return greet_result{ "Hello, " + name + "!", shouted };
-    }
-};
-
-static_assert(mcp::register_tools<^^chat, mcp::simdjson_parser>().size() == 1);
-static_assert(mcp::register_tools<^^chat, mcp::simdjson_parser>()[0].name == "greet");
-// Compile-time proof that the tool's serializer came from the with<> alias
-// (plain_serializer, not the default json_serializer).
-using hello_config = std::remove_cv_t<
-    typename [: std::meta::type_of(mcp::find_meta(^^chat::greet)) :]>;
-static_assert(std::is_same_v<mcp::tool_serializer<hello_config>::template type<greet_result>,
-                             plain_serializer<greet_result>>);
-
-std::span<const mcp::Action> actions() {
-    return mcp::register_tools<^^chat, mcp::simdjson_parser>();
+/// The shared list, guarded by items_mutex(). One list for every client: the
+/// simplest possible state model, good enough for a hello-world example.
+std::vector<item>& items() {
+    static std::vector<item> l;
+    return l;
 }
 
-std::span<const mcp::ResourceTemplate> resource_templates() {
-    static constexpr mcp::ResourceTemplate value[] = {
-        {
-            .uri_template = "users://{id}",
-            .name = "User profile",
-            .description = "Profile for a user, looked up by id",
-            .mime_type = "application/json",
-        },
-    };
-    return value;
+std::mutex& items_mutex() {
+    static std::mutex m;
+    return m;
+}
+
+} // namespace
+
+namespace groups {
+
+struct [[= mcp::tool_group{} ]] todo_list {
+    [[= mcp::tool{ .description = mcp::str("Adds a todo item, returning its id.") } ]]
+    static auto add(std::string text) {
+        std::lock_guard<std::mutex> lk(items_mutex());
+        auto& l = items();
+        const std::int64_t id = l.empty() ? 1 : l.back().id + 1;
+        l.push_back(item{ id, std::move(text), false });
+        return (struct{ std::int64_t id; bool ok; }){ id, true };
+    }
+
+    [[= mcp::tool{ .description = mcp::str("Lists the todo items.") } ]]
+    static auto list() {
+        std::lock_guard<std::mutex> lk(items_mutex());
+        return items();
+    }
+
+    [[= mcp::tool{ .description = mcp::str("Marks a todo item as done.") } ]]
+    static auto complete(std::int64_t id) {
+        std::lock_guard<std::mutex> lk(items_mutex());
+        for (auto& it : items()) {
+            if (it.id == id) {
+                it.done = true;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    [[= mcp::tool{ .description = mcp::str("Removes a todo item.") } ]]
+    static auto remove(std::int64_t id) {
+        std::lock_guard<std::mutex> lk(items_mutex());
+        auto& l = items();
+        for (auto it = l.begin(); it != l.end(); ++it) {
+            if (it->id == id) {
+                l.erase(it);
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+} // namespace groups
+
+static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>().size() == 4);
+static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>()[0].name == "add");
+static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>()[1].name == "list");
+static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>()[2].name == "complete");
+static_assert(mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>()[3].name == "remove");
+
+std::span<const mcp::Action> actions() {
+    return mcp::register_tagged_tools<^^groups, ^^mcp::tool_group, mcp::simdjson_parser>();
 }
 
 mcp::Registry registry() {
-    return mcp::Registry{ actions(), {}, {}, resource_templates() };
+    return mcp::Registry{ actions(), {}, {}, {} };
 }
 
-} // namespace hello
+} // namespace todo

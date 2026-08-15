@@ -97,22 +97,29 @@ void check(bool cond, const char* what) {
     }
 }
 
-// Simple client-side fd helpers (raw newline-delimited frames over the socket).
-std::string read_line(int fd) {
+// Simple client-side fd helper (raw newline-delimited frames over the socket).
+// The buffer lives for the whole exchange: one recv() can carry several
+// responses, and a local buffer would silently drop everything after the
+// first line of that batch.
+struct client_reader {
+    int fd;
     std::string pending;
-    while (true) {
-        auto nl = pending.find('\n');
-        if (nl != std::string::npos) {
-            std::string line = pending.substr(0, nl);
-            pending.erase(0, nl + 1);
-            return line;
+
+    std::string read_line() {
+        while (true) {
+            auto nl = pending.find('\n');
+            if (nl != std::string::npos) {
+                std::string line = pending.substr(0, nl);
+                pending.erase(0, nl + 1);
+                return line;
+            }
+            char buf[4096];
+            const ssize_t n = ::recv(fd, buf, sizeof buf, 0);
+            if (n <= 0) return pending;   // EOF / error: flush what we have
+            pending.append(buf, static_cast<size_t>(n));
         }
-        char buf[4096];
-        const ssize_t n = ::recv(fd, buf, sizeof buf, 0);
-        if (n <= 0) return pending;   // EOF / error: flush what we have
-        pending.append(buf, static_cast<size_t>(n));
     }
-}
+};
 
 void write_line(int fd, const std::string& line) {
     std::string with_nl = line + "\n";
@@ -169,6 +176,7 @@ int run() {
     }
 
     mcp::UnixSocketStream stream(fds[0]);
+    client_reader cl{fds[1]};
     static constexpr auto counters = mcp::register_tools<^^async_demo::counter, mcp::simdjson_parser>();
     static constexpr auto scalers  = mcp::register_tools<^^async_demo::argtypes, mcp::simdjson_parser>();
     static constexpr mcp::Action all[] = { counters[0], counters[1], counters[2], scalers[0], scalers[1] };
@@ -181,14 +189,14 @@ int run() {
 
     // Discovery (replaces the legacy initialize handshake).
     write_line(fds[1], with_meta("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"server/discover\",\"params\":{}}"));
-    const std::string disc_resp = read_line(fds[1]);
+    const std::string disc_resp = cl.read_line();
     check(disc_resp.find("\"supportedVersions\":[\"2026-07-28\"]") != std::string::npos,
           "server/discover reports the supported version");
 
     // Async tool on a live handle -> result envelope (async worker path).
     write_line(fds[1], with_meta("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"set\",\"arguments\":{\"handle\":" +
                        std::to_string(live_token) + ",\"v\":42}}}"));
-    const std::string ok_resp = read_line(fds[1]);
+    const std::string ok_resp = cl.read_line();
     check(ok_resp.find("\"result\"") != std::string::npos &&
               ok_resp.find("\"error\"") == std::string::npos,
           "async tool with live handle -> result envelope");
@@ -197,7 +205,7 @@ int run() {
     // Async tool on a revoked handle -> JSON-RPC error (async worker path).
     write_line(fds[1], with_meta("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"tick\",\"arguments\":{\"handle\":" +
                        std::to_string(revoked_token) + "}}}"));
-    const std::string err_resp = read_line(fds[1]);
+    const std::string err_resp = cl.read_line();
     check(err_resp.find("\"error\"") != std::string::npos &&
               err_resp.find("-32602") != std::string::npos,
           "async tool with revoked handle -> JSON-RPC error (-32602)");
@@ -210,14 +218,14 @@ int run() {
     write_line(fds[1], with_meta("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"slow\",\"arguments\":{\"iterations\":1000}}}"));
     while (!started.load()) std::this_thread::yield();
     write_line(fds[1], "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\",\"params\":{\"requestId\":4}}");
-    const std::string cancel_resp = read_line(fds[1]);
+    const std::string cancel_resp = cl.read_line();
     check(cancel_resp.find("\"result\"") != std::string::npos &&
               cancel_resp.find("cancelled") != std::string::npos,
           "cancelled notification stops the in-flight async tool");
 
     // Float literal round-trip through simdjson (2.5 * 2 -> 5.0 -> "5").
     write_line(fds[1], with_meta("{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"scale\",\"arguments\":{\"factor\":2.5}}}"));
-    const std::string scale_resp = read_line(fds[1]);
+    const std::string scale_resp = cl.read_line();
     check(scale_resp.find("\"result\"") != std::string::npos &&
               scale_resp.find("\\\"result\\\":5") != std::string::npos,
           "float literal round-trips (scale)");
@@ -229,14 +237,14 @@ int run() {
     write_line(fds[1], with_meta("{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\"slow\",\"arguments\":{\"iterations\":5}}}"));
     int completes = 0;
     for (int i = 0; i < 3; ++i) {
-        const std::string r = read_line(fds[1]);
+        const std::string r = cl.read_line();
         if (r.find("complete") != std::string::npos) ++completes;
     }
     check(completes == 3, "pool serves more concurrent async calls than workers");
 
     // Vector arg round-trip through simdjson (real JSON array).
     write_line(fds[1], with_meta("{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"sum_list\",\"arguments\":{\"values\":[1,2,3]}}}"));
-    const std::string vec_resp = read_line(fds[1]);
+    const std::string vec_resp = cl.read_line();
     check(vec_resp.find("\"result\"") != std::string::npos &&
               vec_resp.find("\\\"total\\\":6") != std::string::npos,
           "vector arg round-trips through simdjson");

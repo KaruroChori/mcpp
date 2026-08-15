@@ -4,13 +4,13 @@
 
 #include <mcpp/mcpp.hpp>
 
-namespace hello {
+namespace todo {
 
 /**
- * A different project reusing the same mcp library: one tool group with a
- * single `greet` tool, no resources, no prompts. The library is header-only
- * and decoupled from which capabilities are served (see mcp::Registry).
+ * The simple example: a shared, mutex-guarded todo list exposed over MCP.
+ * No resources, no prompts, no custom serializers: just reflection turning a
+ * few member functions of a tool group into tools.
  */
 mcp::Registry registry();
 
-} // namespace hello
+} // namespace todo

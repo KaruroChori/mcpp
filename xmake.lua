@@ -95,7 +95,7 @@ option("with_demo")
     set_default(false)
     set_showmenu(true)
     set_category("Build Options")
-    set_description("Build the example binaries (hello-world, mini, object, async, binary, app)")
+    set_description("Build the example binaries (todo/hello-world, mini, object, async, binary, app)")
 option_end()
 
 if has_config("with_demo") then

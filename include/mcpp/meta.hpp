@@ -584,7 +584,9 @@ constexpr const std::array<Prompt, func_member_count(Group)>& register_prompts()
 
 template <meta::info Tag>
 consteval bool is_tagged_group(meta::info m) {
-    if (!meta::is_class_type(m)) return false;
+    // is_class_type throws for non-type entities (e.g. a class template in the
+    // scanned namespace); query is_type first so the scan tolerates them.
+    if (!meta::is_type(m) || !meta::is_class_type(m)) return false;
     for (meta::info a : meta::annotations_of(m)) {
         // Tags are class templates (tool_group<Auth> / prompt_group<Auth>);
         // match any instantiation by template.
