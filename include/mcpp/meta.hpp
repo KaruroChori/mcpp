@@ -70,10 +70,10 @@ consteval std::string_view fn_name() {
 /// @return "integer", "number", "string", or "boolean".
 consteval const char* json_type_name(meta::info t) {
     t = meta::dealias(t);
+    if (meta::is_same_type(t, ^^bool)) return "boolean";
     if (meta::is_integral_type(t)) return "integer";
     if (meta::is_floating_point_type(t)) return "number";
     if (meta::is_same_type(t, ^^std::string) || meta::is_same_type(t, ^^std::string_view)) return "string";
-    if (meta::is_same_type(t, ^^bool)) return "boolean";
     return "string";
 }
 

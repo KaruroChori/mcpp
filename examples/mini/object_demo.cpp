@@ -98,6 +98,16 @@ struct [[= mcp::tool_group{} ]] types {
     static color pick_color(color c) { return c; }
 };
 
+// Const-reference parameters: the invoker decays the reflected type before
+// dispatching, so annotated functions keep their natural `const T&` signature.
+struct [[= mcp::tool_group{} ]] refs {
+    [[= mcp::tool{ .description = mcp::str("Echoes a const-reference string.") } ]]
+    static std::string echo_ref(const std::string& text) { return text; }
+
+    [[= mcp::tool{ .description = mcp::str("Negates a bool.") } ]]
+    static bool negate(bool value) { return !value; }
+};
+
 // D4: std::optional, std::vector, and literal-struct parameters.
 struct point { std::int64_t x; std::int64_t y; };
 
@@ -497,6 +507,35 @@ void test_arg_types() {
           "unknown enum name falls back to enumerator 0");
 }
 
+// Const-reference parameters and bool schema/round-trip coverage.
+void test_const_ref_and_bool() {
+    static constexpr auto tools = mcp::register_tools<^^object_demo::refs, mini::parser>();
+    static_assert(tools.size() == 2);
+    mcp::Registry reg{ tools, {}, {}, {} };
+    protocol_harness h(reg, "refs");
+
+    h.dispatch("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}");
+    const std::string& list = h.out.lines.back();
+    check(list.find("\"name\":\"echo_ref\"") != std::string::npos &&
+              list.find("\"text\":{\"type\":\"string\"}") != std::string::npos,
+          "const-reference string schema is string");
+    check(list.find("\"name\":\"negate\"") != std::string::npos &&
+              list.find("\"value\":{\"type\":\"boolean\"}") != std::string::npos,
+          "bool schema is boolean");
+
+    auto by_name = [&](const char* n) -> const mcp::Action& {
+        for (const auto& t : tools)
+            if (std::string(t.name) == n) return t;
+        __builtin_unreachable();
+    };
+    check(call(by_name("echo_ref"), "echo_ref", "{\"text\":\"hi\"}").find("\"hi\"") !=
+              std::string::npos,
+          "const-reference string round-trips");
+    check(call(by_name("negate"), "negate", "{\"value\":true}").find("false") !=
+              std::string::npos,
+          "bool round-trips");
+}
+
 // D4: std::optional / std::vector / literal-struct parameters — schemas and
 // round-trips (through the mini parser, which now parses arrays).
 void test_arg_types_d4() {
@@ -612,6 +651,7 @@ int run() {
     test_unix_socket_path();
     test_arg_types();
     test_arg_types_d4();
+    test_const_ref_and_bool();
 
     if (failures.load() == 0) std::printf("object_demo: ALL PASS\n");
     return failures.load() == 0 ? 0 : 1;

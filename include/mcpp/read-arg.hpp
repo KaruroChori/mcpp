@@ -50,7 +50,10 @@ template <typename U, typename A>
 struct is_vector<std::vector<U, A>> : std::true_type {};
 
 template <typename T>
-T read_value(const JsonView& v);
+using read_arg_type = std::remove_cv_t<std::remove_reference_t<T>>;
+
+template <typename T>
+read_arg_type<T> read_value(const JsonView& v);
 
 namespace arg_detail {
 
@@ -117,60 +120,62 @@ T read_struct(const JsonView& obj, std::index_sequence<Is...>) {
 } // namespace arg_detail
 
 template <typename T>
-T read_value(const JsonView& v) {
-    if constexpr (std::is_same_v<T, std::string>) {
+read_arg_type<T> read_value(const JsonView& v) {
+    using U = read_arg_type<T>;
+    if constexpr (std::is_same_v<U, std::string>) {
         std::string_view s;
         if (v.get_string(s)) return std::string(s);
         return {};
-    } else if constexpr (std::is_same_v<T, bool>) {
+    } else if constexpr (std::is_same_v<U, bool>) {
         bool b = false;
         v.get_bool(b);
         return b;
-    } else if constexpr (std::is_integral_v<T>) {
-        if constexpr (std::is_unsigned_v<T>) {
+    } else if constexpr (std::is_integral_v<U>) {
+        if constexpr (std::is_unsigned_v<U>) {
             std::uint64_t u = 0;
-            if (v.get_uint64(u)) return static_cast<T>(u);
+            if (v.get_uint64(u)) return static_cast<U>(u);
             std::int64_t i = 0;
-            if (v.get_int64(i)) return static_cast<T>(i);
-            return static_cast<T>(0);
+            if (v.get_int64(i)) return static_cast<U>(i);
+            return static_cast<U>(0);
         } else {
             std::int64_t x = 0;
             v.get_int64(x);
-            return static_cast<T>(x);
+            return static_cast<U>(x);
         }
-    } else if constexpr (std::is_floating_point_v<T>) {
+    } else if constexpr (std::is_floating_point_v<U>) {
         double d = 0;
         v.get_double(d);
-        return static_cast<T>(d);
-    } else if constexpr (std::is_enum_v<T>) {
+        return static_cast<U>(d);
+    } else if constexpr (std::is_enum_v<U>) {
         std::string_view s;
         if (v.get_string(s)) {
-            constexpr auto table = arg_detail::enum_table<T>();
+            constexpr auto table = arg_detail::enum_table<U>();
             for (const auto& [ename, val] : table) {
                 if (ename == s) return val;
             }
         }
-        return static_cast<T>(0);
-    } else if constexpr (is_optional<T>::value) {
-        using U = typename T::value_type;
+        return static_cast<U>(0);
+    } else if constexpr (is_optional<U>::value) {
+        using V = typename U::value_type;
         if (!v.present()) return std::nullopt;
-        return std::optional<U>(read_value<U>(v));
-    } else if constexpr (is_vector<T>::value) {
-        using U = typename T::value_type;
-        T out;
+        return U(read_value<V>(v));
+    } else if constexpr (is_vector<U>::value) {
+        using V = typename U::value_type;
+        U out;
         const std::size_t n = v.array_size();
         out.reserve(n);
-        for (std::size_t i = 0; i < n; ++i) out.push_back(read_value<U>(v.array_at(i)));
+        for (std::size_t i = 0; i < n; ++i) out.push_back(read_value<V>(v.array_at(i)));
         return out;
-    } else if constexpr (std::is_class_v<T>) {
-        return arg_detail::read_struct<T>(v, std::make_index_sequence<arg_detail::struct_member_count<T>()>());
+    } else if constexpr (std::is_class_v<U>) {
+        return arg_detail::read_struct<U>(
+            v, std::make_index_sequence<arg_detail::struct_member_count<U>()>());
     } else {
-        static_assert(!std::is_same_v<T, T>, "read_arg: unsupported parameter type");
+        static_assert(!std::is_same_v<U, U>, "read_arg: unsupported parameter type");
     }
 }
 
 template <typename T>
-T read_arg(const JsonView& args, std::string_view name) {
+read_arg_type<T> read_arg(const JsonView& args, std::string_view name) {
     return read_value<T>(args[name]);
 }
 
