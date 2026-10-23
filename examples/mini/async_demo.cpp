@@ -124,8 +124,13 @@ struct client_reader {
 void write_line(int fd, const std::string& line) {
     std::string with_nl = line + "\n";
     size_t off = 0;
+#if defined(MSG_NOSIGNAL)
+    constexpr int send_flags = MSG_NOSIGNAL;
+#else
+    constexpr int send_flags = 0;
+#endif
     while (off < with_nl.size()) {
-        const ssize_t n = ::send(fd, with_nl.data() + off, with_nl.size() - off, MSG_NOSIGNAL);
+        const ssize_t n = ::send(fd, with_nl.data() + off, with_nl.size() - off, send_flags);
         if (n < 0) return;
         off += static_cast<size_t>(n);
     }

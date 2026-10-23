@@ -1,5 +1,5 @@
 set_project("mcpp")
-set_version("0.2.1")
+set_version("0.2.4")
 set_xmakever("3.0.9") --not sure it must be this high, but I cannot be bother checking feature lists.
 
 set_languages("c++26")

@@ -50,6 +50,15 @@ private:
     std::string pending_;
 };
 
+/// Linux/BSD send with MSG_NOSIGNAL. macOS has no MSG_NOSIGNAL; it uses
+/// SO_NOSIGPIPE on the accepted socket instead.
+inline constexpr int kUnixSendFlags =
+#if defined(MSG_NOSIGNAL)
+    MSG_NOSIGNAL;
+#else
+    0;
+#endif
+
 class UnixSocketStream final : public Stream {
 public:
     explicit UnixSocketStream(int fd);
@@ -141,7 +150,12 @@ inline void StdioStream::close() {
 // UnixSocketStream
 // ---------------------------------------------------------------------------
 
-inline UnixSocketStream::UnixSocketStream(int fd) : fd_(fd) {}
+inline UnixSocketStream::UnixSocketStream(int fd) : fd_(fd) {
+#if defined(SO_NOSIGPIPE)
+    int one = 1;
+    ::setsockopt(fd_, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
+#endif
+}
 
 inline std::expected<std::string, std::monostate> UnixSocketStream::read_line() {
     while (true) {
@@ -173,7 +187,7 @@ inline void UnixSocketStream::write(std::string_view data) {
     if (closed_) return;
     size_t off = 0;
     while (off < data.size()) {
-        const ssize_t n = ::send(fd_, data.data() + off, data.size() - off, MSG_NOSIGNAL);
+        const ssize_t n = ::send(fd_, data.data() + off, data.size() - off, kUnixSendFlags);
         if (n < 0) {
             if (errno == EINTR) continue;
             closed_ = true;
